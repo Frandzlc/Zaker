@@ -1,0 +1,64 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find project folder
+        run: |
+          P=$(find . -name project.yml -not -path "./.git/*" | head -n 1)
+          if [ -z "$P" ]; then echo "project.yml not found"; exit 1; fi
+          echo "PROJ_DIR=$(dirname "$P")" >> "$GITHUB_ENV"
+          echo "Project folder: $(dirname "$P")"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build (unsigned)
+        working-directory: ${{ env.PROJ_DIR }}
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild \
+            -project Zaker.xcodeproj \
+            -scheme Zaker \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || true
+          if [ ! -d build/Build/Products/Release-iphoneos/Zaker.app ]; then
+            echo "===== ERRORS ====="
+            grep -E "error:" build.log | sort -u | head -60
+            echo "===== TAIL ====="
+            tail -n 40 build.log
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Zaker.app Payload/
+          zip -qry Zaker.ipa Payload
+          ls -lh Zaker.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zaker-ipa
+          path: ${{ env.PROJ_DIR }}/Zaker.ipa
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.PROJ_DIR }}/build.log
