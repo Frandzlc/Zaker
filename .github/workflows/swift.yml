@@ -1,0 +1,40 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find project folder
+        run: |
+          P=$(find . -name project.yml -not -path "./.git/*" | head -n 1)
+          if [ -z "$P" ]; then echo "project.yml not found"; exit 1; fi
+          echo "PROJ_DIR=$(dirname "$P")" >> "$GITHUB_ENV"
+          echo "Project folder: $(dirname "$P")"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build (unsigned)
+        working-directory: ${{ env.PROJ_DIR }}
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild \
+            -project Zaker.xcodeproj \
+            -scheme Zaker \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 ||
