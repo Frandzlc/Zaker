@@ -3,11 +3,76 @@ import SwiftData
 
 @main
 struct ZakerApp: App {
+    private let store = AppStore.make()
+
     var body: some Scene {
         WindowGroup {
-            RootView()
+            switch store {
+            case .ready(let container):
+                RootView()
+                    .modelContainer(container)
+            case .failed(let message):
+                StartupErrorView(message: message)
+            }
         }
-        .modelContainer(for: [Book.self, Note.self, Quiz.self, Deck.self, Summary.self, ChatMsg.self])
+    }
+}
+
+/// ينشئ قاعدة البيانات بأمان: إذا فشلت ما يطيح التطبيق،
+/// يحاول يصلحها، وإذا ما قدر يشتغل بذاكرة مؤقتة أو يعرض الخطأ.
+enum AppStore {
+    case ready(ModelContainer)
+    case failed(String)
+
+    static let schema = Schema([Book.self, Note.self, Quiz.self, Deck.self, Summary.self, ChatMsg.self])
+
+    static var storeURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent("Zaker.store")
+    }
+
+    static func make() -> AppStore {
+        let url = storeURL
+        do {
+            return .ready(try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url)))
+        } catch {
+            print("ModelContainer failed: \(error)")
+        }
+        // القاعدة تالفة أو غير متوافقة: نحذفها ونبدأ من جديد (ملفات الكتب نفسها تبقى).
+        for suffix in ["", "-shm", "-wal"] {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: url.path + suffix))
+        }
+        do {
+            return .ready(try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url)))
+        } catch {
+            print("ModelContainer retry failed: \(error)")
+        }
+        do {
+            return .ready(try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)))
+        } catch {
+            return .failed(String(describing: error))
+        }
+    }
+}
+
+struct StartupErrorView: View {
+    let message: String
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.orange)
+            Text(tr("صار خطأ وقت تشغيل التطبيق", "The app failed to start"))
+                .font(.title3.bold())
+            ScrollView {
+                Text(message)
+                    .font(.footnote.monospaced())
+                    .textSelection(.enabled)
+            }
+            .frame(maxHeight: 300)
+        }
+        .padding()
     }
 }
 
