@@ -15,6 +15,8 @@ final class Book {
     var remoteURI: String
     var remoteName: String
     var uploadedAt: Date?
+    /// نوع الملف (MIME) للملفات غير PDF، مثل image/jpeg. فاضي للنصوص.
+    var mimeType: String = ""
 
     @Relationship(deleteRule: .cascade, inverse: \Note.book) var notes: [Note] = []
     @Relationship(deleteRule: .cascade, inverse: \Quiz.book) var quizzes: [Quiz] = []
@@ -37,6 +39,25 @@ final class Book {
     }
 
     var fileURL: URL { BookFiles.directory.appendingPathComponent(fileName) }
+    var isImage: Bool { mimeType.hasPrefix("image/") }
+    var hasFile: Bool { !fileName.isEmpty }
+
+    /// وصف قصير لنوع الكتاب.
+    var kindLabel: String {
+        if isPDF { return tr("\(pageCount) صفحة", "\(pageCount) pages") }
+        if isImage { return tr("صورة", "Image") }
+        if hasFile { return fileName.split(separator: ".").last.map { $0.uppercased() } ?? tr("ملف", "File") }
+        return tr("نص", "Text")
+    }
+
+    var kindIcon: String {
+        if isPDF { return "book.closed.fill" }
+        if isImage { return "photo.fill" }
+        if mimeType.hasPrefix("audio/") { return "waveform" }
+        if mimeType.hasPrefix("video/") { return "film.fill" }
+        if hasFile { return "doc.fill" }
+        return "doc.plaintext.fill"
+    }
 }
 
 @Model
