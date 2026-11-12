@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import PDFKit
+import QuickLook
 
 struct BookView: View {
     @Bindable var book: Book
@@ -32,9 +33,13 @@ struct BookView: View {
                         ActionTile(icon: "note.text", title: tr("ملاحظاتي", "My notes"),
                                    subtitle: countLabel(book.notes.count), color: .yellow)
                     }
+                    NavigationLink { NotebookListView(book: book) } label: {
+                        ActionTile(icon: "pencil.tip.crop.circle.fill", title: tr("دفتري بالقلم", "Handwritten notes"),
+                                   subtitle: tr("أقلام، صور، تسجيل صوت", "Pens, images, audio"), color: .indigo)
+                    }
                     NavigationLink { ReaderView(book: book) } label: {
                         ActionTile(icon: "book.fill", title: tr("اقرأ", "Read"),
-                                   subtitle: book.isPDF ? tr("\(book.pageCount) صفحة", "\(book.pageCount) pages") : tr("نص", "Text"),
+                                   subtitle: book.kindLabel,
                                    color: .green)
                     }
                 }
@@ -59,7 +64,7 @@ struct BookView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { book.lastOpened = .now }
         .task {
-            if book.isPDF && thumb == nil { thumb = PDFThumb.make(url: book.fileURL) }
+            if thumb == nil { thumb = PDFThumb.make(book: book) }
         }
     }
 
@@ -70,7 +75,7 @@ struct BookView: View {
                 if let thumb {
                     Image(uiImage: thumb).resizable().scaledToFill()
                 } else {
-                    Image(systemName: "book.closed.fill").font(.largeTitle).foregroundStyle(.white)
+                    Image(systemName: book.kindIcon).font(.largeTitle).foregroundStyle(.white)
                 }
             }
             .frame(width: 90, height: 120)
@@ -82,7 +87,8 @@ struct BookView: View {
                     .font(.title3.bold())
                     .lineLimit(3)
                 Text(book.isPDF ? tr("كتاب PDF · \(book.pageCount) صفحة", "PDF · \(book.pageCount) pages")
-                                : tr("نص · \(book.textContent.count) حرف", "Text · \(book.textContent.count) characters"))
+                                : (book.hasFile ? book.kindLabel
+                                   : tr("نص · \(book.textContent.count) حرف", "Text · \(book.textContent.count) characters")))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Text(tr("أُضيف ", "Added ") + book.addedAt.shortLabel)
@@ -135,6 +141,9 @@ struct ReaderView: View {
                 PDFKitView(url: book.fileURL)
                     .ignoresSafeArea(edges: .bottom)
                     .environment(\.layoutDirection, .leftToRight)
+            } else if book.hasFile {
+                QuickLookView(url: book.fileURL)
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 ScrollView {
                     Text(book.textContent)
@@ -163,4 +172,26 @@ struct PDFKitView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {}
+}
+
+/// يعرض أي ملف (Word، PowerPoint، Excel، صور، صوت، فيديو…) بعارض iOS.
+struct QuickLookView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url) }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let c = QLPreviewController()
+        c.dataSource = context.coordinator
+        return c
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {}
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+        init(url: URL) { self.url = url }
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { url as NSURL }
+    }
 }

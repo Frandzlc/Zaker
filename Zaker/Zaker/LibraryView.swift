@@ -51,7 +51,7 @@ struct LibraryView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { showImporter = true } label: {
-                            Label(tr("استيراد كتاب PDF", "Import PDF book"), systemImage: "doc.richtext")
+                            Label(tr("استيراد ملف (PDF، صور، Word…)", "Import a file (PDF, images, Word…)"), systemImage: "doc.richtext")
                         }
                         Button { showPasteText = true } label: {
                             Label(tr("لصق نص", "Paste text"), systemImage: "doc.on.clipboard")
@@ -61,7 +61,7 @@ struct LibraryView: View {
                     }
                 }
             }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf, .plainText], allowsMultipleSelection: true) { result in
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
                 importBooks(result)
             }
             .sheet(isPresented: $showPasteText) {
@@ -90,23 +90,8 @@ struct LibraryView: View {
             importError = e.localizedDescription
         case .success(let urls):
             for url in urls {
-                do {
-                    let title = url.deletingPathExtension().lastPathComponent
-                    if url.pathExtension.lowercased() == "pdf" {
-                        let name = try BookFiles.importFile(from: url)
-                        let doc = PDFDocument(url: BookFiles.directory.appendingPathComponent(name))
-                        ctx.insert(Book(title: title, fileName: name, isPDF: true, pageCount: doc?.pageCount ?? 0))
-                    } else {
-                        let access = url.startAccessingSecurityScopedResource()
-                        defer { if access { url.stopAccessingSecurityScopedResource() } }
-                        let text = try String(contentsOf: url, encoding: .utf8)
-                        ctx.insert(Book(title: title, isPDF: false, textContent: text))
-                    }
-                } catch {
-                    importError = tr("ما قدرت أفتح الملف: ", "Couldn't open the file: ") + url.lastPathComponent
-                }
+                if let err = FileImport.importFile(url, into: ctx) { importError = err }
             }
-            try? ctx.save()
         }
     }
 }
@@ -139,12 +124,12 @@ struct EmptyLibrary: View {
                 .padding(.top, 40)
             Text(tr("مكتبتك فاضية", "Your library is empty"))
                 .font(.title2.bold())
-            Text(tr("أضف كتاب PDF أو الصق نص، والـAI يسوي لك منه اختبارات وملخصات وبطاقات مراجعة.",
-                    "Add a PDF book or paste text, and the AI will make quizzes, summaries and flashcards from it."))
+            Text(tr("أضف أي ملف (PDF، صور، Word، PowerPoint…) أو الصق نص، والـAI يسوي لك منه اختبارات وملخصات وبطاقات مراجعة.",
+                    "Add any file (PDF, images, Word, PowerPoint…) or paste text, and the AI will make quizzes, summaries and flashcards from it."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button(action: onImport) {
-                Label(tr("استيراد كتاب PDF", "Import PDF book"), systemImage: "doc.richtext")
+                Label(tr("استيراد ملف (PDF، صور، Word…)", "Import a file (PDF, images, Word…)"), systemImage: "doc.richtext")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -175,7 +160,7 @@ struct BookCard: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Image(systemName: book.isPDF ? "book.closed.fill" : "doc.plaintext.fill")
+                    Image(systemName: book.kindIcon)
                         .font(.system(size: 40))
                         .foregroundStyle(.white.opacity(0.9))
                 }
@@ -188,18 +173,26 @@ struct BookCard: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .foregroundStyle(.primary)
-            Text(book.isPDF ? tr("\(book.pageCount) صفحة", "\(book.pageCount) pages") : tr("نص", "Text"))
+            Text(book.kindLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .task(id: book.fileName) {
-            guard book.isPDF, thumb == nil else { return }
-            thumb = PDFThumb.make(url: book.fileURL)
+            guard thumb == nil else { return }
+            thumb = PDFThumb.make(book: book)
         }
     }
 }
 
 enum PDFThumb {
+    static func make(book: Book) -> UIImage? {
+        if book.isPDF { return make(url: book.fileURL) }
+        if book.isImage, let img = UIImage(contentsOfFile: book.fileURL.path) {
+            return img.preparingThumbnail(of: CGSize(width: 320, height: 420)) ?? img
+        }
+        return nil
+    }
+
     static func make(url: URL) -> UIImage? {
         guard let doc = PDFDocument(url: url), let page = doc.page(at: 0) else { return nil }
         return page.thumbnail(of: CGSize(width: 320, height: 420), for: .cropBox)

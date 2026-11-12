@@ -91,7 +91,7 @@ struct Gemini {
     }()
 
     /// يرفع ملف PDF عن طريق Files API ويرجع رابطه.
-    func upload(fileURL: URL, displayName: String) async throws -> (uri: String, name: String) {
+    func upload(fileURL: URL, displayName: String, mimeType: String = "application/pdf") async throws -> (uri: String, name: String) {
         let data = try Data(contentsOf: fileURL)
 
         var start = URLRequest(url: URL(string: "\(Self.base)/upload/v1beta/files")!)
@@ -100,7 +100,7 @@ struct Gemini {
         start.setValue("resumable", forHTTPHeaderField: "X-Goog-Upload-Protocol")
         start.setValue("start", forHTTPHeaderField: "X-Goog-Upload-Command")
         start.setValue("\(data.count)", forHTTPHeaderField: "X-Goog-Upload-Header-Content-Length")
-        start.setValue("application/pdf", forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
+        start.setValue(mimeType, forHTTPHeaderField: "X-Goog-Upload-Header-Content-Type")
         start.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let safeName = String(displayName.prefix(100))
         start.httpBody = try JSONSerialization.data(withJSONObject: ["file": ["display_name": safeName]])
@@ -238,6 +238,11 @@ enum AI {
         }
     }
 
+    /// أنواع الملفات اللي Gemini يقرأها مباشرة.
+    static func geminiReadable(_ mime: String) -> Bool {
+        mime.hasPrefix("image/") || mime.hasPrefix("audio/") || mime.hasPrefix("video/") || mime == "application/pdf"
+    }
+
     static func scopeRule(book: Book, from: Int, to: Int) -> String {
         if book.isPDF && from > 0 && to >= from {
             return "Use ONLY pages \(from) to \(to) of the attached PDF (PDF page numbers)."
@@ -246,17 +251,24 @@ enum AI {
     }
 
     private static func bookPart(_ book: Book, client: Gemini, force: Bool) async throws -> [String: Any] {
-        if !book.isPDF {
+        let mime = book.isPDF ? "application/pdf" : book.mimeType
+        let useFile = book.isPDF || (!book.fileName.isEmpty && Self.geminiReadable(mime)
+                                     && book.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if !useFile {
+            guard !book.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GeminiError(message: tr("الذكاء الاصطناعي ما يقدر يقرأ هالنوع من الملفات. حوّله لـ PDF وجرب.",
+                                              "The AI can't read this file type. Convert it to PDF and try again."))
+            }
             return ["text": "BOOK CONTENT START\n" + book.textContent + "\nBOOK CONTENT END"]
         }
         let expired = book.uploadedAt.map { Date().timeIntervalSince($0) > 40 * 3600 } ?? true
         if force || book.remoteURI.isEmpty || expired {
-            let r = try await client.upload(fileURL: book.fileURL, displayName: book.title)
+            let r = try await client.upload(fileURL: book.fileURL, displayName: book.title, mimeType: mime)
             book.remoteURI = r.uri
             book.remoteName = r.name
             book.uploadedAt = .now
         }
-        return ["fileData": ["mimeType": "application/pdf", "fileUri": book.remoteURI]]
+        return ["fileData": ["mimeType": mime, "fileUri": book.remoteURI]]
     }
 
     /// turns: [(role, text)] — الكتاب ينضاف تلقائيًا لأول رسالة.
@@ -282,7 +294,7 @@ enum AI {
         do {
             let part = try await bookPart(book, client: c, force: false)
             return try await c.generate(contents: build(part), system: sys, schema: schema)
-        } catch let e as GeminiError where book.isPDF && (e.status == 403 || e.status == 404 || (e.status == 400 && e.message.lowercased().contains("file"))) {
+        } catch let e as GeminiError where !book.remoteURI.isEmpty && (e.status == 403 || e.status == 404 || (e.status == 400 && e.message.lowercased().contains("file"))) {
             // الملف انتهت صلاحيته عند Gemini: نرفعه من جديد
             let part = try await bookPart(book, client: c, force: true)
             return try await c.generate(contents: build(part), system: sys, schema: schema)

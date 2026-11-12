@@ -24,7 +24,8 @@ enum AppStore {
     case ready(ModelContainer)
     case failed(String)
 
-    static let schema = Schema([Book.self, Note.self, Quiz.self, Deck.self, Summary.self, ChatMsg.self])
+    static let schema = Schema([Book.self, Note.self, Quiz.self, Deck.self, Summary.self, ChatMsg.self,
+                                Notebook.self, NotePage.self, Recording.self])
 
     static var storeURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -78,13 +79,26 @@ struct StartupErrorView: View {
 
 struct RootView: View {
     @AppStorage(Prefs.uiLangKey) private var uiLang = "ar"
+    @Environment(\.modelContext) private var ctx
+    @State private var tab = 0
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             LibraryView()
                 .tabItem { Label(tr("مكتبتي", "Library"), systemImage: "books.vertical.fill") }
+                .tag(0)
+            NavigationStack { NotebookListView(book: nil) }
+                .tabItem { Label(tr("دفاتري", "Notebooks"), systemImage: "pencil.and.scribble") }
+                .tag(1)
             SettingsView()
                 .tabItem { Label(tr("الإعدادات", "Settings"), systemImage: "gearshape.fill") }
+                .tag(2)
+        }
+        // فتح أي ملف من تطبيقات ثانية (مشاركة ← ذاكر)
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            FileImport.importFile(url, into: ctx)
+            tab = 0
         }
         .tint(Theme.accent)
         .appLanguage()

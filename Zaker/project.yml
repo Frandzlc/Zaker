@@ -32,6 +32,14 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: false
+        NSMicrophoneUsageDescription: "ذاكر يحتاج المايك عشان تسجّل الشرح في دفترك. Zaker uses the microphone to record audio notes."
+        NSCameraUsageDescription: "ذاكر يحتاج الكاميرا عشان تضيف صور لدفترك. Zaker uses the camera to add photos to your notes."
+        NSPhotoLibraryUsageDescription: "ذاكر يضيف صورك لدفترك. Zaker adds your photos to your notes."
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Any file
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.item, public.content, public.data, com.adobe.pdf, public.image, public.text]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fahad.zaker
