@@ -452,7 +452,6 @@ struct NotebookEditorView: View {
                     Button { exportPDF() } label: { Label(tr("تصدير الدفتر PDF", "Export notebook as PDF"), systemImage: "square.and.arrow.up") }
                     Button { exportPageImage() } label: { Label(tr("مشاركة الصفحة كصورة", "Share page as image"), systemImage: "photo") }
                     Divider()
-                    Toggle(isOn: $tools.fingerDraws) { Label(tr("الكتابة بالإصبع", "Draw with finger"), systemImage: "hand.draw") }
                     Button(role: .destructive) { clearPage() } label: { Label(tr("مسح كتابة الصفحة", "Clear page ink"), systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -510,6 +509,7 @@ struct NotebookEditorView: View {
             Button(tr("إلغاء", "Cancel"), role: .cancel) {}
         }
         .onAppear {
+            tools.onOpenLibrary = { showLibrary = true }
             if notebook.pages.isEmpty {
                 ctx.insert(NotePage(index: 0, paper: notebook.paper, paperColor: notebook.paperColor, notebook: notebook))
                 try? ctx.save()
@@ -808,7 +808,7 @@ struct PenChip: View {
                 .shadow(color: .black.opacity(pen.colorHex == "FFFFFF" ? 0.6 : 0), radius: 1)
             Capsule().fill(pen.color)
                 .frame(width: 22, height: max(2, min(CGFloat(pen.width) / 2, 8)))
-                .opacity(pen.ink == .marker ? 0.6 : 1)
+                .opacity((pen.ink == .marker ? 0.6 : 1) * max(pen.alpha, 0.35))
         }
         .frame(width: 40, height: 40)
         .background(selected ? Theme.accent.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
@@ -845,7 +845,7 @@ struct RecordingPill: View {
 struct PenLibraryView: View {
     @ObservedObject var tools: ToolState
     @Environment(\.dismiss) private var dismiss
-    @State private var tab = 0
+    @State private var tab = 3
     @State private var recent: [String] = PenLibrary.loadRecentColors()
     @State private var custom: Color = .black
 
@@ -854,8 +854,9 @@ struct PenLibraryView: View {
             VStack(spacing: 0) {
                 currentPen
                 Picker("", selection: $tab) {
-                    Text(tr("أقلام", "Pens")).tag(0)
-                    Text(tr("ألوان (\(ColorLibrary.totalCount))", "Colors (\(ColorLibrary.totalCount))")).tag(1)
+                    Text(tr("كتالوج (\(PenLibrary.catalogCount))", "Catalog (\(PenLibrary.catalogCount))")).tag(3)
+                    Text(tr("أنواع", "Inks")).tag(0)
+                    Text(tr("ألوان", "Colors")).tag(1)
                     Text(tr("مجموعات", "Sets")).tag(2)
                 }
                 .pickerStyle(.segmented)
@@ -866,6 +867,7 @@ struct PenLibraryView: View {
                     switch tab {
                     case 0: pensTab
                     case 1: colorsTab
+                    case 3: catalogTab
                     default: setsTab
                     }
                 }
@@ -904,7 +906,12 @@ struct PenLibraryView: View {
                     Label(tr("للمفضلة", "Favorite"), systemImage: "star.fill").font(.caption.bold())
                 }
                 .buttonStyle(.bordered)
-                .disabled(tools.favorites.contains { $0.ink == tools.pen.ink && $0.colorHex == tools.pen.colorHex && $0.width == tools.pen.width })
+                .disabled(tools.favorites.contains { $0.ink == tools.pen.ink && $0.colorHex == tools.pen.colorHex && $0.width == tools.pen.width && $0.alpha == tools.pen.alpha })
+            }
+            HStack {
+                Image(systemName: "circle.lefthalf.filled")
+                Slider(value: Binding(get: { tools.pen.alpha }, set: { tools.setOpacity($0) }), in: 0.1...1)
+                Text("\(Int(tools.pen.alpha * 100))%").font(.caption.monospacedDigit()).frame(width: 40)
             }
         }
         .environment(\.layoutDirection, .leftToRight)
@@ -946,6 +953,44 @@ struct PenLibraryView: View {
             }
         }
         .environment(\.layoutDirection, .leftToRight)
+        .padding()
+    }
+
+    private var catalogTab: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(tr("اختر القلم، وتقدر تغير لونه ومقاسه وشفافيته من فوق.",
+                    "Pick a pen, then change its color, size and opacity above."))
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(PenLibrary.catalog) { g in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(g.title).font(.headline)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 10) {
+                        ForEach(g.pens) { np in
+                            let sel = tools.pen.name == np.pen.name
+                            VStack(spacing: 4) {
+                                PenSample(pen: np.pen)
+                                    .frame(height: 38)
+                                    .background(np.pen.colorHex == "FFFFFF" || np.pen.colorHex.hasPrefix("FFF") ? Color(white: 0.25) : Color.white,
+                                                in: RoundedRectangle(cornerRadius: 6))
+                                Text(np.title)
+                                    .font(.caption2)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                    .frame(height: 28)
+                            }
+                            .padding(6)
+                            .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(sel ? Theme.accent : Color.gray.opacity(0.25), lineWidth: sel ? 2.5 : 1))
+                            .onTapGesture {
+                                var p = np.pen
+                                p.id = UUID()
+                                tools.select(p)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         .padding()
     }
 
@@ -1072,7 +1117,7 @@ struct PenSample: View {
             default:
                 break
             }
-            ctx.opacity = opacity
+            ctx.opacity = opacity * pen.alpha
             ctx.stroke(path, with: .color(pen.color), style: style)
         }
     }

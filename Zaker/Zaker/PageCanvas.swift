@@ -13,13 +13,14 @@ final class ToolState: ObservableObject {
     @Published var bitmapEraser = false
     @Published var eraserWidth: Double = 20
     @Published var ruler = false
-    @Published var fingerDraws: Bool = UserDefaults.standard.object(forKey: "fingerDraws") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(fingerDraws, forKey: "fingerDraws") }
-    }
     @Published var favorites: [PenPreset] {
         didSet { PenLibrary.saveFavorites(favorites) }
     }
     weak var canvas: PKCanvasView?
+    /// يفتح مكتبة الأقلام (لما تضغط ضغطتين على Apple Pencil)
+    var onOpenLibrary: (() -> Void)?
+    private var modeBeforeEraser: ToolMode = .draw
+    private var previousPen: PenPreset?
 
     init() {
         let f = PenLibrary.loadFavorites()
@@ -28,8 +29,29 @@ final class ToolState: ObservableObject {
     }
 
     func select(_ p: PenPreset) {
+        if p.id != pen.id { previousPen = pen }
         pen = p
         mode = .draw
+    }
+
+    /// ضغطتين على Apple Pencil (حسب إعداد الجهاز).
+    func pencilDoubleTap() {
+        switch UIPencilInteraction.preferredTapAction {
+        case .ignore:
+            return
+        case .showColorPalette, .showInkAttributes:
+            onOpenLibrary?()
+        case .switchPrevious:
+            if mode != .draw { mode = .draw }
+            else if let prev = previousPen { select(prev) }
+        default: // switchEraser
+            if mode == .erase {
+                mode = modeBeforeEraser == .erase ? .draw : modeBeforeEraser
+            } else {
+                modeBeforeEraser = mode
+                mode = .erase
+            }
+        }
     }
 
     func setColor(_ hex: String) {
@@ -37,6 +59,11 @@ final class ToolState: ObservableObject {
         PenLibrary.pushRecent(hex)
         if mode != .draw { mode = .draw }
         // حدّث القلم المفضل لو كان مختار
+        if let i = favorites.firstIndex(where: { $0.id == pen.id }) { favorites[i] = pen }
+    }
+
+    func setOpacity(_ o: Double) {
+        pen.opacity = o
         if let i = favorites.firstIndex(where: { $0.id == pen.id }) { favorites[i] = pen }
     }
 
@@ -145,6 +172,7 @@ final class PageScrollView: UIScrollView, UIScrollViewDelegate {
 
     var onItemsChanged: (([PageItem]) -> Void)?
     var onEditText: ((PageItem) -> Void)?
+    var onPencilDoubleTap: (() -> Void)?
     private var items: [PageItem] = []
     private var lastWidth: CGFloat = 0
     private var selectMode = false
@@ -178,6 +206,10 @@ final class PageScrollView: UIScrollView, UIScrollViewDelegate {
         pageView.addSubview(canvas)
         addSubview(pageView)
         contentSize = PageSize.size
+
+        let pencil = UIPencilInteraction()
+        pencil.delegate = self
+        addInteraction(pencil)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -233,13 +265,14 @@ final class PageScrollView: UIScrollView, UIScrollViewDelegate {
         case .select: break
         }
         canvas.isRulerActive = t.ruler
-        canvas.drawingPolicy = t.fingerDraws ? .anyInput : .pencilOnly
+        // الرسم بـ Apple Pencil فقط، والإصبع للتحريك والتكبير.
+        canvas.drawingPolicy = .pencilOnly
+        onPencilDoubleTap = { [weak t] in t?.pencilDoubleTap() }
 
         let select = t.mode == .select
         canvas.isUserInteractionEnabled = !select
         itemsView.isUserInteractionEnabled = select
-        // بالإصبع: إصبعين للتحريك. بالقلم فقط أو وضع التحديد: إصبع واحد.
-        panGestureRecognizer.minimumNumberOfTouches = (t.fingerDraws && !select) ? 2 : 1
+        panGestureRecognizer.minimumNumberOfTouches = 1
         if select != selectMode {
             selectMode = select
             itemsView.subviews.compactMap { $0 as? ItemView }.forEach { $0.setSelectable(select) }
@@ -292,6 +325,13 @@ final class PageScrollView: UIScrollView, UIScrollViewDelegate {
         items.append(item)
         reloadItems(items)
         onItemsChanged?(items)
+    }
+}
+
+extension PageScrollView: UIPencilInteractionDelegate {
+    @available(iOS, deprecated: 17.5)
+    func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+        onPencilDoubleTap?()
     }
 }
 

@@ -320,14 +320,37 @@ struct PenPreset: Codable, Hashable, Identifiable {
     var ink: InkKind
     var colorHex: String
     var width: Double
+    /// اسم القلم في الكتالوج (اختياري)
+    var name: String? = nil
+    /// الشفافية من 0.1 إلى 1 (اختياري)
+    var opacity: Double? = nil
+
+    var alpha: Double { min(max(opacity ?? 1, 0.05), 1) }
 
     var tool: PKInkingTool {
         let range = ink.pkType.validWidthRange
         let w = min(max(CGFloat(width), range.lowerBound), range.upperBound)
-        return PKInkingTool(ink.pkType, color: UIColor(hex: colorHex), width: w)
+        return PKInkingTool(ink.pkType, color: UIColor(hex: colorHex).withAlphaComponent(CGFloat(alpha)), width: w)
     }
 
     var color: Color { Color(hex: colorHex) }
+}
+
+/// قلم في الكتالوج باسم واضح.
+struct NamedPen: Identifiable {
+    let id: String
+    let ar: String
+    let en: String
+    let pen: PenPreset
+    var title: String { tr(ar, en) }
+}
+
+struct PenCatalogGroup: Identifiable {
+    let id: String
+    let ar: String
+    let en: String
+    let pens: [NamedPen]
+    var title: String { tr(ar, en) }
 }
 
 /// مجموعات أقلام جاهزة.
@@ -373,6 +396,88 @@ enum PenLibrary {
             p(.crayon, "FFFFFF", 10), p(.crayon, "FFF1B5", 10), p(.crayon, "A0C4FF", 10), p(.crayon, "FFB7B2", 10),
             p(.pen, "FFFFFF", 3), p(.marker, "39FF14", 20)]),
     ]
+
+    private static func n(_ id: String, _ ar: String, _ en: String, _ ink: InkKind, _ hex: String, _ w: Double, _ op: Double? = nil) -> NamedPen {
+        NamedPen(id: id, ar: ar, en: en, pen: PenPreset(ink: ink, colorHex: hex, width: w, name: id, opacity: op))
+    }
+
+    /// كتالوج أقلام بأسماء مثل اللي في المكتبة الحقيقية.
+    static let catalog: [PenCatalogGroup] = [
+        PenCatalogGroup(id: "ballpoint", ar: "أقلام جاف وجل", en: "Ballpoint & gel", pens: [
+            n("bp05", "جاف ناعم 0.5", "Ballpoint 0.5", .pen, "1E3A8A", 1.5),
+            n("bp07", "جاف 0.7", "Ballpoint 0.7", .pen, "1D4ED8", 2.5),
+            n("bp10", "جاف عريض 1.0", "Ballpoint 1.0", .pen, "000000", 3.5),
+            n("gel05", "جل 0.5", "Gel 0.5", .pen, "000000", 2),
+            n("gel10", "جل عريض 1.0", "Gel 1.0", .pen, "B91C1C", 4.5),
+            n("gelglitter", "جل لامع", "Glitter gel", .pen, "DB2777", 4, 0.85),
+            n("gelwhite", "جل أبيض (للورق الغامق)", "White gel (dark paper)", .pen, "FFFFFF", 3),
+            n("rollerball", "رولر بول", "Rollerball", .pen, "0B1F5C", 3),
+        ]),
+        PenCatalogGroup(id: "fineliner", ar: "فاين لاينر وتحبير", en: "Fineliners & inking", pens: [
+            n("fl01", "فاين لاينر 0.1", "Fineliner 0.1", .monoline, "000000", 0.5),
+            n("fl03", "فاين لاينر 0.3", "Fineliner 0.3", .monoline, "000000", 1),
+            n("fl05", "فاين لاينر 0.5", "Fineliner 0.5", .monoline, "000000", 1.8),
+            n("fl08", "فاين لاينر 0.8", "Fineliner 0.8", .monoline, "000000", 2.8),
+            n("techpen", "قلم هندسي", "Technical pen", .monoline, "1F2937", 1.2),
+            n("sign", "قلم توقيع", "Signature pen", .fountainPen, "0B1F5C", 3),
+            n("brushpen", "قلم فرشاة", "Brush pen", .fountainPen, "000000", 9),
+            n("whiteboard", "ماركر سبورة", "Whiteboard marker", .monoline, "1D4ED8", 9),
+            n("sharpie", "ماركر ثابت عريض", "Permanent marker", .monoline, "000000", 6),
+        ]),
+        PenCatalogGroup(id: "calligraphy", ar: "خط عربي وريشة", en: "Calligraphy", pens: [
+            n("naskh", "ريشة نسخ", "Naskh nib", .fountainPen, "000000", 7),
+            n("ruqah", "ريشة رقعة", "Ruq'ah nib", .fountainPen, "000000", 5),
+            n("thuluth", "ريشة ثلث", "Thuluth nib", .fountainPen, "000000", 14),
+            n("diwani", "ريشة ديواني", "Diwani nib", .fountainPen, "1E3A8A", 11),
+            n("kufi", "قلم كوفي", "Kufic marker", .monoline, "000000", 12),
+            n("gold", "حبر ذهبي", "Gold ink", .fountainPen, "D4AF37", 10),
+            n("sepia", "حبر بني قديم", "Sepia ink", .fountainPen, "704214", 6),
+            n("fountain", "قلم حبر سائل", "Fountain pen", .fountainPen, "0B1F5C", 4),
+        ]),
+        PenCatalogGroup(id: "pencils", ar: "أقلام رصاص وفحم", en: "Pencils & charcoal", pens: [
+            n("2h", "رصاص 2H (فاتح)", "Pencil 2H", .pencil, "8E8E93", 2),
+            n("hb", "رصاص HB", "Pencil HB", .pencil, "3A3A3C", 3),
+            n("2b", "رصاص 2B", "Pencil 2B", .pencil, "222222", 5),
+            n("6b", "رصاص 6B (غامق)", "Pencil 6B", .pencil, "000000", 9),
+            n("mech", "رصاص ميكانيكي", "Mechanical pencil", .pencil, "333333", 1.5),
+            n("colorpencil", "رصاص ملون", "Colored pencil", .pencil, "DC2626", 5),
+            n("charcoal", "فحم", "Charcoal", .crayon, "111111", 18),
+            n("shade", "تظليل ناعم", "Soft shading", .pencil, "555555", 20, 0.5),
+        ]),
+        PenCatalogGroup(id: "highlighters", ar: "هايلايتر وتظليل", en: "Highlighters", pens: [
+            n("hl-yellow", "هايلايتر أصفر", "Yellow highlighter", .marker, "FFF200", 20),
+            n("hl-green", "هايلايتر أخضر", "Green highlighter", .marker, "39FF14", 20),
+            n("hl-pink", "هايلايتر وردي", "Pink highlighter", .marker, "FF6EC7", 20),
+            n("hl-blue", "هايلايتر أزرق", "Blue highlighter", .marker, "00BFFF", 20),
+            n("hl-orange", "هايلايتر برتقالي", "Orange highlighter", .marker, "FF9933", 20),
+            n("hl-thin", "هايلايتر رفيع (تحت السطر)", "Thin underliner", .marker, "FFE135", 8),
+            n("hl-wide", "هايلايتر عريض", "Wide highlighter", .marker, "FDFF6B", 40),
+            n("hl-pastel", "هايلايتر باستيل", "Pastel highlighter", .marker, "C7CEEA", 22),
+            n("hl-soft", "تظليل شفاف", "Soft tint", .monoline, "FFD166", 18, 0.3),
+        ]),
+        PenCatalogGroup(id: "art", ar: "رسم وتلوين", en: "Art & painting", pens: [
+            n("wc-soft", "فرشاة مائية ناعمة", "Soft watercolor", .watercolor, "0077B6", 20),
+            n("wc-wide", "فرشاة مائية عريضة", "Wide watercolor", .watercolor, "F72585", 50),
+            n("wc-wash", "غسلة لون", "Color wash", .watercolor, "90E0EF", 80, 0.6),
+            n("crayon", "ألوان شمعية", "Crayon", .crayon, "D90429", 12),
+            n("pastel", "باستيل طباشيري", "Chalk pastel", .crayon, "FFB7B2", 22),
+            n("chalk", "طباشير أبيض", "White chalk", .crayon, "FFFFFF", 12),
+            n("chalk-y", "طباشير أصفر", "Yellow chalk", .crayon, "FFF1B5", 12),
+            n("oil", "ألوان زيتية", "Oil paint", .crayon, "2D6A4F", 35),
+            n("airbrush", "بخاخ ألوان", "Airbrush", .watercolor, "7209B7", 60, 0.35),
+            n("neon", "قلم نيون", "Neon pen", .monoline, "39FF14", 4),
+        ]),
+        PenCatalogGroup(id: "math", ar: "رياضيات وهندسة", en: "Math & engineering", pens: [
+            n("m-graph", "قلم رسم بياني", "Graph pen", .monoline, "1D4ED8", 1.5),
+            n("m-axis", "قلم المحاور", "Axis pen", .monoline, "000000", 2.5),
+            n("m-red", "تصحيح أحمر", "Red correction", .pen, "DC2626", 2.5),
+            n("m-green", "إجابة صح أخضر", "Green check", .pen, "16A34A", 2.5),
+            n("m-construct", "خطوط مساعدة", "Construction lines", .pencil, "8E8E93", 1.5),
+            n("m-box", "تحديد الناتج", "Answer box", .monoline, "7C3AED", 2),
+        ]),
+    ]
+
+    static var catalogCount: Int { catalog.reduce(0) { $0 + $1.pens.count } }
 
     private static let favKey = "penFavorites"
 
